@@ -1,0 +1,6 @@
+build/
+build-device/
+Payload/
+*.ipa
+screenshot.png
+Demo.xcodeproj/
