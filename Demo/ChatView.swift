@@ -11,15 +11,13 @@ struct ChatView: View {
                 ScrollView {
                     LazyVStack(spacing: 10) {
                         ForEach(chat.messages) { m in
-                            MessageBubble(message: m)
-                                .id(m.id)
+                            MessageBubble(message: m).id(m.id)
                         }
                         if thinking {
-                            HStack {
+                            HStack(spacing: 8) {
                                 ProgressView().tint(.cyan)
                                 Text("thinking...")
-                                    .font(.caption)
-                                    .foregroundStyle(.white.opacity(0.5))
+                                    .font(.caption).foregroundStyle(.white.opacity(0.5))
                                 Spacer()
                             }
                             .padding(.horizontal, 16)
@@ -34,10 +32,9 @@ struct ChatView: View {
             }
 
             HStack(spacing: 10) {
-                TextField("Message \(chat.model)", text: $draft, axis: .vertical)
+                TextField("Message", text: $draft, axis: .vertical)
                     .lineLimit(1...4)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
+                    .padding(.horizontal, 14).padding(.vertical, 10)
                     .background(Color.white.opacity(0.08))
                     .clipShape(RoundedRectangle(cornerRadius: 18))
                     .foregroundStyle(.white)
@@ -46,11 +43,11 @@ struct ChatView: View {
                     Image(systemName: "arrow.up")
                         .font(.system(size: 16, weight: .bold))
                         .frame(width: 40, height: 40)
-                        .background(draft.isEmpty ? Color.white.opacity(0.12) : Color.cyan)
-                        .foregroundStyle(draft.isEmpty ? Color.white.opacity(0.4) : Color.black)
+                        .background(draft.isEmpty || thinking ? Color.white.opacity(0.12) : Color.cyan)
+                        .foregroundStyle(draft.isEmpty || thinking ? Color.white.opacity(0.4) : Color.black)
                         .clipShape(Circle())
                 }
-                .disabled(draft.trimmingCharacters(in: .whitespaces).isEmpty)
+                .disabled(draft.trimmingCharacters(in: .whitespaces).isEmpty || thinking)
             }
             .padding(12)
             .background(.ultraThinMaterial)
@@ -69,12 +66,23 @@ struct ChatView: View {
         guard !text.isEmpty else { return }
         chat.messages.append(.init(text: text, isUser: true))
         chat.updated = Date()
+        if chat.title == "New chat" { chat.title = String(text.prefix(28)) }
         draft = ""
         thinking = true
+
         Task {
-            try? await Task.sleep(nanoseconds: 700_000_000)
-            let reply = "[\(chat.model)] noted: \"\(text.prefix(60))\". Ini mock reply lokal - belum nyambung ke backend."
-            chat.messages.append(.init(text: reply, isUser: false))
+            let api = APIClient.shared
+            if !api.isConfigured {
+                try? await Task.sleep(nanoseconds: 400_000_000)
+                chat.messages.append(.init(text: "API key kosong. Buka Settings (ikon gear) dan tempel key ZevAI.", isUser: false, failed: true))
+            } else {
+                do {
+                    let reply = try await api.chat(model: chat.model, history: chat.messages)
+                    chat.messages.append(.init(text: reply, isUser: false))
+                } catch {
+                    chat.messages.append(.init(text: error.localizedDescription, isUser: false, failed: true))
+                }
+            }
             thinking = false
         }
     }
@@ -88,9 +96,8 @@ struct MessageBubble: View {
             if message.isUser { Spacer(minLength: 40) }
             Text(message.text)
                 .font(.system(size: 15))
-                .foregroundStyle(message.isUser ? Color.black : Color.white)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 10)
+                .foregroundStyle(message.isUser ? Color.black : (message.failed ? Color.orange : Color.white))
+                .padding(.horizontal, 14).padding(.vertical, 10)
                 .background(message.isUser ? Color.cyan : Color.white.opacity(0.10))
                 .clipShape(RoundedRectangle(cornerRadius: 16))
             if !message.isUser { Spacer(minLength: 40) }

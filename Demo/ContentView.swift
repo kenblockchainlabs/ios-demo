@@ -3,7 +3,9 @@ import SwiftUI
 struct ContentView: View {
     @State private var chats: [ChatThread] = ChatThread.samples
     @State private var showModels = false
-    @State private var activeModel = "Opus 5.5"
+    @State private var showSettings = false
+    @State private var activeModel = ChatThread.defaultModel
+    @State private var configured = APIClient.shared.isConfigured
 
     var body: some View {
         NavigationStack {
@@ -17,6 +19,13 @@ struct ContentView: View {
                         }
                         .listRowBackground(Color.white.opacity(0.05))
                     }
+                    Button {
+                        chats.insert(.init(title: "New chat", model: activeModel, messages: [], updated: Date()), at: 0)
+                    } label: {
+                        Label("New chat", systemImage: "square.and.pencil")
+                            .foregroundStyle(.cyan)
+                    }
+                    .listRowBackground(Color.white.opacity(0.05))
                 } header: {
                     Text("Recent").foregroundStyle(.white.opacity(0.4))
                 }
@@ -30,11 +39,18 @@ struct ContentView: View {
             .navigationTitle("FreeMilk client")
             .navigationBarTitleDisplayMode(.large)
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button { showSettings = true } label: {
+                        Image(systemName: configured ? "gearshape.fill" : "gearshape")
+                            .foregroundStyle(configured ? Color.cyan : Color.white.opacity(0.6))
+                    }
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button { showModels = true } label: {
                         HStack(spacing: 4) {
                             Circle().fill(Color.cyan).frame(width: 7, height: 7)
-                            Text(activeModel).font(.caption).bold()
+                            Text(activeModel.split(separator: "/").last.map(String.init) ?? activeModel)
+                                .font(.caption).bold().lineLimit(1)
                         }
                         .foregroundStyle(.white)
                     }
@@ -43,6 +59,10 @@ struct ContentView: View {
             .sheet(isPresented: $showModels) {
                 ModelPicker(selected: $activeModel)
             }
+            .sheet(isPresented: $showSettings) {
+                SettingsView()
+            }
+            .onAppear { configured = APIClient.shared.isConfigured }
             .preferredColorScheme(.dark)
         }
     }
@@ -60,12 +80,12 @@ struct ThreadRow: View {
             }
             HStack(spacing: 6) {
                 Text(chat.model)
-                    .font(.caption2).bold()
+                    .font(.caption2).bold().lineLimit(1)
                     .padding(.horizontal, 7).padding(.vertical, 3)
                     .background(Color.cyan.opacity(0.18))
                     .foregroundStyle(Color.cyan)
                     .clipShape(Capsule())
-                Text(chat.messages.last?.text ?? "")
+                Text(chat.messages.last?.text ?? "empty")
                     .font(.caption).foregroundStyle(.white.opacity(0.45)).lineLimit(1)
             }
         }
@@ -76,47 +96,103 @@ struct ThreadRow: View {
 struct ModelPicker: View {
     @Binding var selected: String
     @Environment(\.dismiss) private var dismiss
+    @State private var models: [String] = []
+    @State private var loading = false
+    @State private var error: String?
+    @State private var filter = ""
+
+    var filtered: [String] {
+        filter.isEmpty ? models : models.filter { $0.localizedCaseInsensitiveContains(filter) }
+    }
 
     var body: some View {
         NavigationStack {
             List {
-                Section("Thirsty Models - daily free allowance") {
-                    ForEach(ChatThread.sampleModels.filter { $0.thirsty }) { m in
-                        row(m)
-                    }
-                }
-                Section("Open models - always free") {
-                    ForEach(ChatThread.sampleModels.filter { !$0.thirsty }) { m in
-                        row(m)
+                if let error { Text(error).font(.caption).foregroundStyle(.orange) }
+                ForEach(filtered, id: \.self) { id in
+                    Button {
+                        selected = id
+                        dismiss()
+                    } label: {
+                        HStack {
+                            Text(id).font(.system(size: 14)).foregroundStyle(.white)
+                            Spacer()
+                            if selected == id { Image(systemName: "checkmark.circle.fill").foregroundStyle(.cyan) }
+                        }
                     }
                 }
             }
-            .navigationTitle("Pick model")
+            .searchable(text: $filter)
+            .overlay { if loading { ProgressView().tint(.cyan) } }
+            .navigationTitle("\(models.count) models")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Done") { dismiss() }.foregroundStyle(.cyan)
-                }
+                ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() }.foregroundStyle(.cyan) }
             }
+            .task { await load() }
         }
         .preferredColorScheme(.dark)
     }
 
-    private func row(_ m: ModelInfo) -> some View {
-        Button {
-            selected = m.name
-            dismiss()
-        } label: {
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(m.name).foregroundStyle(.white).font(.system(size: 15, weight: .semibold))
-                    Text(m.vendor).font(.caption2).foregroundStyle(.white.opacity(0.4))
+    private func load() async {
+        guard APIClient.shared.isConfigured else { error = "API key belum diisi (Settings)"; return }
+        loading = true
+        defer { loading = false }
+        do { models = try await APIClient.shared.models() }
+        catch { self.error = error.localizedDescription }
+    }
+}
+
+struct SettingsView: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var base = APIClient.shared.baseURL
+    @State private var key = APIClient.shared.apiKey
+    @State private var probe: String = ""
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Endpoint (OpenAI-compatible)") {
+                    TextField("http://host:port", text: $base)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
                 }
-                Spacer()
-                if selected == m.name {
-                    Image(systemName: "checkmark.circle.fill").foregroundStyle(.cyan)
+                Section("API key") {
+                    SecureField("Bearer token", text: $key)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                    Text("Disimpan lokal di device ini, tidak dikirim ke mana pun selain endpoint di atas.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                Section {
+                    Button("Test koneksi") {
+                        Task {
+                            APIClient.shared.baseURL = base
+                            APIClient.shared.apiKey = key
+                            do {
+                                let m = try await APIClient.shared.models()
+                                probe = "OK - \(m.count) model"
+                            } catch { probe = "GAGAL - \(error.localizedDescription)" }
+                        }
+                    }
+                    if !probe.isEmpty {
+                        Text(probe).font(.caption)
+                            .foregroundStyle(probe.hasPrefix("OK") ? .green : .orange)
+                    }
+                }
+            }
+            .navigationTitle("Settings")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Save") {
+                        APIClient.shared.baseURL = base
+                        APIClient.shared.apiKey = key
+                        dismiss()
+                    }.foregroundStyle(.cyan)
                 }
             }
         }
+        .preferredColorScheme(.dark)
     }
 }
