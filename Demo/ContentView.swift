@@ -1,67 +1,122 @@
 import SwiftUI
 
 struct ContentView: View {
-    @State private var count = 0
-    @State private var pulse = false
+    @State private var chats: [ChatThread] = ChatThread.samples
+    @State private var showModels = false
+    @State private var activeModel = "Opus 5.5"
 
     var body: some View {
-        ZStack {
-            LinearGradient(
-                colors: [Color(red: 0.05, green: 0.06, blue: 0.10),
-                         Color(red: 0.10, green: 0.05, blue: 0.16)],
-                startPoint: .topLeading, endPoint: .bottomTrailing
-            ).ignoresSafeArea()
-
-            VStack(spacing: 28) {
-                Text("SUPERPANDORA")
-                    .font(.system(size: 30, weight: .heavy, design: .rounded))
-                    .foregroundStyle(
-                        LinearGradient(colors: [.cyan, .purple],
-                                       startPoint: .leading, endPoint: .trailing)
-                    )
-
-                Text("built on GitHub Actions macOS runner")
-                    .font(.footnote)
-                    .foregroundStyle(.white.opacity(0.55))
-
-                ZStack {
-                    Circle()
-                        .fill(Color.cyan.opacity(pulse ? 0.28 : 0.12))
-                        .frame(width: 200, height: 200)
-                        .scaleEffect(pulse ? 1.08 : 0.95)
-                    Circle()
-                        .strokeBorder(Color.cyan.opacity(0.5), lineWidth: 1)
-                        .frame(width: 200, height: 200)
-                    Text("\(count)")
-                        .font(.system(size: 64, weight: .bold, design: .rounded))
-                        .foregroundStyle(.white)
-                        .contentTransition(.numericText())
+        NavigationStack {
+            List {
+                Section {
+                    ForEach($chats) { $chat in
+                        NavigationLink {
+                            ChatView(chat: $chat)
+                        } label: {
+                            ThreadRow(chat: chat)
+                        }
+                        .listRowBackground(Color.white.opacity(0.05))
+                    }
+                } header: {
+                    Text("Recent").foregroundStyle(.white.opacity(0.4))
                 }
-                .animation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true), value: pulse)
-                .onAppear { pulse = true }
-
-                Button {
-                    withAnimation(.snappy) { count += 1 }
-                } label: {
-                    Text("TAP")
-                        .font(.system(size: 18, weight: .bold, design: .rounded))
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 16)
-                        .background(Color.cyan)
-                        .foregroundStyle(.black)
-                        .clipShape(RoundedRectangle(cornerRadius: 16))
-                }
-                .padding(.horizontal, 48)
-
-                Spacer().frame(height: 8)
-
-                Text("unsigned build \u{00B7} no Apple account needed")
-                    .font(.caption2)
-                    .foregroundStyle(.white.opacity(0.35))
             }
-            .padding()
+            .scrollContentBackground(.hidden)
+            .background(
+                LinearGradient(colors: [Color(red: 0.04, green: 0.05, blue: 0.09),
+                                        Color(red: 0.08, green: 0.04, blue: 0.13)],
+                               startPoint: .top, endPoint: .bottom).ignoresSafeArea()
+            )
+            .navigationTitle("FreeMilk client")
+            .navigationBarTitleDisplayMode(.large)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { showModels = true } label: {
+                        HStack(spacing: 4) {
+                            Circle().fill(Color.cyan).frame(width: 7, height: 7)
+                            Text(activeModel).font(.caption).bold()
+                        }
+                        .foregroundStyle(.white)
+                    }
+                }
+            }
+            .sheet(isPresented: $showModels) {
+                ModelPicker(selected: $activeModel)
+            }
+            .preferredColorScheme(.dark)
         }
     }
 }
 
-#Preview { ContentView() }
+struct ThreadRow: View {
+    let chat: ChatThread
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text(chat.title).font(.system(size: 15, weight: .semibold)).foregroundStyle(.white)
+                Spacer()
+                Text(chat.updated, style: .relative).font(.caption2).foregroundStyle(.white.opacity(0.35))
+            }
+            HStack(spacing: 6) {
+                Text(chat.model)
+                    .font(.caption2).bold()
+                    .padding(.horizontal, 7).padding(.vertical, 3)
+                    .background(Color.cyan.opacity(0.18))
+                    .foregroundStyle(Color.cyan)
+                    .clipShape(Capsule())
+                Text(chat.messages.last?.text ?? "")
+                    .font(.caption).foregroundStyle(.white.opacity(0.45)).lineLimit(1)
+            }
+        }
+        .padding(.vertical, 4)
+    }
+}
+
+struct ModelPicker: View {
+    @Binding var selected: String
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section("Thirsty Models - daily free allowance") {
+                    ForEach(ChatThread.sampleModels.filter { $0.thirsty }) { m in
+                        row(m)
+                    }
+                }
+                Section("Open models - always free") {
+                    ForEach(ChatThread.sampleModels.filter { !$0.thirsty }) { m in
+                        row(m)
+                    }
+                }
+            }
+            .navigationTitle("Pick model")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") { dismiss() }.foregroundStyle(.cyan)
+                }
+            }
+        }
+        .preferredColorScheme(.dark)
+    }
+
+    private func row(_ m: ModelInfo) -> some View {
+        Button {
+            selected = m.name
+            dismiss()
+        } label: {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(m.name).foregroundStyle(.white).font(.system(size: 15, weight: .semibold))
+                    Text(m.vendor).font(.caption2).foregroundStyle(.white.opacity(0.4))
+                }
+                Spacer()
+                if selected == m.name {
+                    Image(systemName: "checkmark.circle.fill").foregroundStyle(.cyan)
+                }
+            }
+        }
+    }
+}
