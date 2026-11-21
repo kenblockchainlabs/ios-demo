@@ -1,0 +1,28 @@
+name: fm-probe
+on:
+  workflow_dispatch:
+  push:
+jobs:
+  probe:
+    runs-on: macos-26
+    timeout-minutes: 15
+    steps:
+      - name: OS info
+        run: sw_vers; uname -m; system_profiler SPHardwareDataType 2>/dev/null | grep -i -E 'chip|model' | head -3
+      - name: Download FreeMilk
+        run: curl -sL -o /tmp/FreeMilk.dmg https://updates.freemilk.ai/FreeMilk.dmg && ls -lh /tmp/FreeMilk.dmg
+      - name: Mount
+        run: hdiutil attach /tmp/FreeMilk.dmg -nobrowse -quiet; ls /Volumes
+      - name: Install
+        run: cp -R /Volumes/FreeMilk/FreeMilk.app /Applications/ && xattr -dr com.apple.quarantine /Applications/FreeMilk.app && hdiutil detach /Volumes/FreeMilk -quiet || true
+      - name: Launch and shoot
+        run: |
+          open -a /Applications/FreeMilk.app || echo "OPEN_FAILED"
+          sleep 30
+          screencapture -x /tmp/fm1.png || echo "SHOT_FAILED"
+          ls -lh /tmp/fm1.png
+          osascript -e 'tell application "System Events" to get name of every process whose background only is false' || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fm-shot
+          path: /tmp/fm1.png
